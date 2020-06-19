@@ -16,14 +16,15 @@ struct NoEffectMutex {
   void try_lock() {}
 };
 
-template <class Mutex> struct LockGuard {
+template <class Mutex>
+struct LockGuard {
   Mutex &m_;
   LockGuard(Mutex &m) : m_(m) { m_.lock(); }
   ~LockGuard() { m_.unlock(); }
 };
 
 class Path {
-public:
+ public:
   using KeyType = std::string;
   using Keys = std::vector<KeyType>;
   using Sep = char;
@@ -40,14 +41,13 @@ public:
   Path(const Keys &ks) : keys_{ks} {}
 
   template <class String>
-  Path(const String &path, Sep sep = '/')
-      : keys_{toKeys(path, sep)}, sep_{sep} {}
+  Path(const String &path, Sep sep = '/') : keys_{toKeys(path, sep)} {}
   const Keys &keys() const { return keys_; }
 
-  std::string toString() const {
+  std::string toString(Sep sep = '/') const {
     auto str = std::string{};
     for (const auto &key : keys()) {
-      str += key + sep_;
+      str += key + sep;
     }
     if (!str.empty()) {
       str.resize(str.size() - 1);
@@ -74,7 +74,8 @@ public:
     return Path{std::move(newKeys)};
   }
 
-  template <class String> bool operator==(const String &p) const {
+  template <class String>
+  bool operator==(const String &p) const {
     auto ks = toKeys(p);
     if (ks.size() != keys_.size()) {
       return false;
@@ -103,7 +104,7 @@ public:
   auto rbegin() const { return keys_.rbegin(); }
   auto rend() const { return keys_.rend(); }
 
-private:
+ private:
   template <class String>
   static Keys toKeys(const String &path, Sep sep = '/') {
     using std::begin;
@@ -137,7 +138,6 @@ private:
   }
 
   Keys keys_;
-  Sep sep_ = '/';
 };
 
 bool operator<(const Path &kp1, const Path &kp2) {
@@ -160,7 +160,7 @@ class ModificationSignal
   static constexpr SlotIDType SlotIDInvalid = nullptr;
 
   class Connection {
-  public:
+   public:
     using SignalType = ModificationSignal<Tree>;
     using SignalRefType = std::weak_ptr<SignalType>;
     using SlotIDType = SignalType::SlotIDType;
@@ -189,20 +189,20 @@ class ModificationSignal
     Connection(const Connection &) = delete;
     Connection &operator=(const Connection &) = delete;
 
-  private:
+   private:
     friend class ModificationSignal;
     Connection() = default;
     Connection(SignalRefType &&sigref, SlotIDType slotID)
         : signalRef_{std::move(sigref)}, slotID_{slotID} {}
 
     SignalRefType signalRef_;
-    SlotIDType slotID_;
+    SlotIDType slotID_ = SlotIDInvalid;
   };
 
   enum class ImplType : char { Single, Multi };
 
   class ImplIF {
-  public:
+   public:
     virtual ~ImplIF() = default;
     virtual SlotIDType connect(SlotType &&sl) = 0;
     virtual void disconnect(SlotIDType slID) = 0;
@@ -216,7 +216,7 @@ class ModificationSignal
   class SingleImpl : public ImplIF {
     std::unique_ptr<SlotType> slot_ = nullptr;
 
-  public:
+   public:
     ~SingleImpl() = default;
     ImplType type() override { return ImplType::Single; }
     bool connected() const override { return !!slot_; }
@@ -247,7 +247,7 @@ class ModificationSignal
   class MultiImpl : public ImplIF {
     SlotListType slots_;
 
-  public:
+   public:
     MultiImpl() = default;
     MultiImpl(SlotListType &&list) : slots_{std::move(list)} {}
     ImplType type() override { return ImplType::Multi; }
@@ -262,10 +262,9 @@ class ModificationSignal
     }
 
     void disconnect(SlotIDType slotID) override {
-      slots_.erase(
-          std::find_if(slots_.begin(), slots_.end(), [slotID](const auto &sl) {
-            return sl.get() == slotID;
-          }));
+      slots_.erase(std::find_if(
+          slots_.begin(), slots_.end(),
+          [slotID](const auto &sl) { return sl.get() == slotID; }));
     }
 
     void onChanged(const NodeType &oldNode, const NodeType &newNode) override {
@@ -277,7 +276,7 @@ class ModificationSignal
     SlotListType stealSlots() override { return std::move(slots_); }
   };
 
-public:
+ public:
   Connection connect(SlotType sl) {
     SlotIDType slotID = SlotIDInvalid;
     if (sl) {
@@ -295,8 +294,9 @@ public:
     return {};
   }
 
-private:
-  template <class TreeClass> friend class SignalMgr;
+ private:
+  template <class TreeClass>
+  friend class SignalMgr;
 
   bool connected() const {
     LockGuard lock(mutex_);
@@ -323,17 +323,24 @@ private:
   mutable MutexType mutex_;
 };
 
-template <class Tree> class SignalMgr {
-public:
-  using KeyType = Path::KeyType;
+template <class Tree>
+class SignalMgr {
+ public:
   using SignalType = ModificationSignal<Tree>;
+  using PathType = typename Tree::PathType;
+  using KeyType = typename Tree::KeyType;
   using TraitType = typename Tree::TraitType;
   using NodeType = typename Tree::NodeType;
   using SignalPtrType = std::shared_ptr<SignalType>;
 
-  SignalPtrType createSignal(const Path &path) {
-    if (!path.keys().empty()) {
-      return createSignal(std::begin(path.keys()), std::end(path.keys()));
+  SignalPtrType createSignal(const PathType &path) {
+    using namespace std;
+    //    using std::begin;
+    //    using std::end;
+    auto ibeg = begin(path);
+    auto iend = end(path);
+    if (ibeg != iend) {
+      return createSignal(ibeg, iend);
     }
     return {};
   }
@@ -374,7 +381,7 @@ public:
     return hasChanged;
   }
 
-  bool onChanged(const Path &path, const NodeType &oldData,
+  bool onChanged(const PathType &path, const NodeType &oldData,
                  const NodeType &newData) {
     if (auto signalPtr = getSignal(path)) {
       if (!TraitType::equal(oldData, newData)) {
@@ -385,7 +392,7 @@ public:
     return false;
   }
 
-private:
+ private:
   struct MySignalAndChild {
     SignalPtrType signalPtr_;
     std::unique_ptr<SignalMgr> child_;
@@ -407,11 +414,13 @@ private:
     }
   }
 
-  SignalPtrType getSignal(const Path &path) {
-    auto beg = std::begin(path);
-    auto end = std::end(path);
-    if (beg != end) {
-      if (auto sigNChild = getSigNChild(beg, end)) {
+  SignalPtrType getSignal(const PathType &path) {
+    using std::begin;
+    using std::end;
+    auto ibeg = begin(path);
+    auto iend = end(path);
+    if (ibeg != iend) {
+      if (auto sigNChild = getSigNChild(ibeg, iend)) {
         return sigNChild->signalPtr_;
       }
     }
@@ -436,18 +445,20 @@ private:
   std::map<KeyType, MySignalAndChild> signalsMap_;
 };
 
-template <class Node, class Trait, class Mutex = NoEffectMutex>
+template <class Node, class Trait, class Path = otree::Path,
+          class Key = otree::Path::KeyType, class Mutex = NoEffectMutex>
 class ObservableTree {
-  using MyType = ObservableTree<Node, Trait, Mutex>;
+  using MyType = ObservableTree<Node, Trait, Path, Key, Mutex>;
 
-public:
+ public:
   using NodeType = Node;
   using TraitType = Trait;
-  using MutexType = Mutex;
   using PathType = Path;
+  using KeyType = Key;
+  using MutexType = Mutex;
   using SignalPtrType = typename SignalMgr<MyType>::SignalPtrType;
 
-  SignalPtrType modificationSignal(const Path &path) {
+  SignalPtrType modificationSignal(const PathType &path) {
     LockGuard lock(mutex_);
     return signalMgr_.createSignal(path);
   }
@@ -465,13 +476,13 @@ public:
   }
 
   // tbd: set(data, path)
-  void set(const Path &path, const NodeType &newNode) {
+  void set(const PathType &path, const NodeType &newNode) {
     LockGuard lock(mutex_);
     signalMgr_.onChanged(path, TraitType::get(root_, path), newNode);
     TraitType::set(root_, path, newNode);
   }
 
-  void set(const Path &path, NodeType &&newNode) {
+  void set(const PathType &path, NodeType &&newNode) {
     LockGuard lock(mutex_);
     signalMgr_.onChanged(path, TraitType::get(root_, path), newNode);
     TraitType::set(root_, path, std::move(newNode));
@@ -482,20 +493,21 @@ public:
     return root_;
   }
 
-  NodeType get(const Path &path) {
+  NodeType get(const PathType &path) {
     LockGuard lock(mutex_);
     return Trait::get(path);
   }
 
-  template <typename T> T get(const Path &path) {
+  template <typename T>
+  T get(const PathType &path) {
     LockGuard lock(mutex_);
     return Trait::template get<T>(root_, path);
   }
 
-private:
+ private:
   SignalMgr<MyType> signalMgr_;
   NodeType root_;
   mutable Mutex mutex_;
 };
 
-} // namespace otree
+}  // namespace otree
